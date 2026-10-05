@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数独 - Sudoku Master</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap');
+
+    body {
+      font-family: 'Plus Jakarta Sans', 'M PLUS Rounded 1c', sans-serif;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* 数独ボードの境界線制御 */
+    .grid-cell {
+      aspect-ratio: 1 / 1;
+      transition: background-color 0.15s ease, transform 0.08s ease;
+    }
+
+    .border-b-thick {
+      border-bottom: 2.5px solid #334155 !important;
+    }
+    .border-r-thick {
+      border-right: 2.5px solid #334155 !important;
+    }
+
+    /* メモ（ペンシルマーク）用のサブグリッド */
+    .memo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .memo-item {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      line-height: 1;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    @media (min-width: 640px) {
+      .memo-item {
+        font-size: 0.75rem;
+      }
+    }
+
+    /* アニメーション */
+    @keyframes popIn {
+      0% { transform: scale(0.75); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-pop {
+      animation: popIn 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between antialiased selection:bg-indigo-100">
+
+  <header class="w-full max-w-2xl mx-auto px-4 pt-4 pb-2 flex items-center justify-between">
+    <div class="flex items-center gap-2.5">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-200">
+        <i class="fa-solid fa-shapes text-lg"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-extrabold tracking-tight text-slate-800 flex items-center gap-2">
+          数独パズル
+          <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-semibold border border-indigo-100">Classic</span>
+        </h1>
+        <p class="text-xs text-slate-500">初心者〜中級者向けトレーニング</p>
+      </div>
+    </div>
+
+    <!-- 難易度セレクター -->
+    <div class="flex items-center bg-slate-200/80 p-1 rounded-xl text-xs font-bold gap-1 shadow-inner">
+      <button id="btn-diff-easy" onclick="setDifficulty('easy')" class="px-3 py-1.5 rounded-lg transition-all text-slate-600">
+        初級
+      </button>
+      <button id="btn-diff-medium" onclick="setDifficulty('medium')" class="px-3 py-1.5 rounded-lg transition-all text-slate-600">
+        中級
+      </button>
+    </div>
+  </header>
+
+  <main class="w-full max-w-xl mx-auto px-3 sm:px-4 flex-1 flex flex-col justify-center">
+    <div class="bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200/70 mb-3 flex items-center justify-between text-sm">
+      <div class="flex items-center gap-2 text-slate-600 font-medium">
+        <span class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-slate-100 text-slate-500">
+          <i class="fa-regular fa-clock"></i>
+        </span>
+        <span id="timer-display" class="font-mono text-base font-semibold text-slate-800">00:00</span>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-1.5 text-slate-600 font-medium text-xs sm:text-sm">
+          <span>ミス:</span>
+          <span id="mistake-count" class="font-bold text-rose-500">0</span>
+          <span class="text-slate-400">/ 3</span>
+        </div>
+
+        <button onclick="restartGame()" title="盤面を再生成" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-arrows-rotate text-xs"></i>
+          <span>新規</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="relative w-full aspect-square max-w-[480px] mx-auto bg-slate-800 p-1 sm:p-1.5 rounded-2xl shadow-xl shadow-slate-200 border-2 border-slate-700">
+      <div id="sudoku-grid" class="w-full h-full grid grid-cols-9 grid-rows-9 bg-slate-300 gap-[1px] rounded-xl overflow-hidden">
+        <!-- 81個のマスはJavaScriptで生成 -->
+      </div>
+    </div>
+
+    <div class="grid grid-cols-4 gap-2 mt-4 max-w-[480px] mx-auto w-full">
+      <button onclick="undoMove()" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 active:scale-95 transition shadow-sm">
+        <i class="fa-solid fa-rotate-left text-base text-slate-500 mb-0.5"></i>
+        <span class="text-xs font-semibold">元に戻す</span>
+      </button>
+
+      <button onclick="eraseCurrentCell()" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 active:scale-95 transition shadow-sm">
+        <i class="fa-solid fa-eraser text-base text-slate-500 mb-0.5"></i>
+        <span class="text-xs font-semibold">消去</span>
+      </button>
+
+      <button id="memo-toggle-btn" onclick="toggleMemoMode()" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 active:scale-95 transition shadow-sm relative">
+        <i class="fa-solid fa-pencil text-base text-slate-500 mb-0.5"></i>
+        <span class="text-xs font-semibold">メモ</span>
+        <span id="memo-badge" class="absolute top-1.5 right-2 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-600">OFF</span>
+      </button>
+
+      <button onclick="useHint()" class="flex flex-col items-center justify-center py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 active:scale-95 transition shadow-sm relative">
+        <i class="fa-regular fa-lightbulb text-base text-amber-500 mb-0.5"></i>
+        <span class="text-xs font-semibold">ヒント</span>
+        <span id="hint-count-badge" class="absolute top-1.5 right-2 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-700">3</span>
+      </button>
+    </div>
+
+    <div class="grid grid-cols-9 gap-1 sm:gap-2 mt-3 max-w-[480px] mx-auto w-full">
+      <!-- 1から9までの数字入力キー -->
+      <button onclick="handleNumberInput(1)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">1</button>
+      <button onclick="handleNumberInput(2)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">2</button>
+      <button onclick="handleNumberInput(3)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">3</button>
+      <button onclick="handleNumberInput(4)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">4</button>
+      <button onclick="handleNumberInput(5)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">5</button>
+      <button onclick="handleNumberInput(6)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">6</button>
+      <button onclick="handleNumberInput(7)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">7</button>
+      <button onclick="handleNumberInput(8)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">8</button>
+      <button onclick="handleNumberInput(9)" class="num-btn aspect-[4/5] sm:aspect-square flex items-center justify-center text-xl sm:text-2xl font-bold bg-white text-indigo-900 border border-slate-200 rounded-xl shadow-sm hover:bg-indigo-50 active:scale-90 transition">9</button>
+    </div>
+  </main>
+
+  <!-- クリア成功モーダル -->
+  <div id="win-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl animate-pop border border-slate-100">
+      <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">
+        <i class="fa-solid fa-trophy"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-slate-800 mb-1">お見事！クリア！</h2>
+      <p class="text-slate-500 text-sm mb-6">すべての数字が正しく埋まりました！</p>
+      
+      <div class="bg-slate-50 rounded-2xl p-4 mb-6 grid grid-cols-2 gap-3 text-center border border-slate-100">
+        <div>
+          <div class="text-xs text-slate-400 font-medium">クリアタイム</div>
+          <div id="modal-time" class="text-lg font-bold text-slate-700 font-mono">00:00</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">難易度</div>
+          <div id="modal-diff" class="text-lg font-bold text-indigo-600">初級</div>
+        </div>
+      </div>
+
+      <button onclick="closeWinModalAndRestart()" class="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:opacity-95 active:scale-95 transition">
+        次のパズルに挑戦
+      </button>
+    </div>
+  </div>
+
+  <!-- ゲームオーバー（ミス上限）モーダル -->
+  <div id="gameover-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-3xl p-6 max-w-xs w-full text-center shadow-2xl animate-pop border border-slate-100">
+      <div class="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+        <i class="fa-regular fa-face-frown"></i>
+      </div>
+      <h2 class="text-xl font-bold text-slate-800 mb-1">ゲームオーバー</h2>
+      <p class="text-slate-500 text-xs mb-5">3回ミスをしてしまいました。<br>もう一度やり直してみましょう！</p>
+      <button onclick="restartGame()" class="w-full py-3 bg-slate-800 text-white font-bold rounded-xl shadow hover:bg-slate-700 active:scale-95 transition">
+        最初から再挑戦
+      </button>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <div id="toast" class="fixed top-5 left-1/2 -translate-x-1/2 bg-slate-800/90 text-white text-xs sm:text-sm font-medium px-4 py-2 rounded-full shadow-lg pointer-events-none transition-all duration-300 opacity-0 -translate-y-2 z-50">
+    メッセージ
+  </div>
+
+  <footer class="w-full text-center py-3 text-xs text-slate-400">
+    <p>キーボードの [1〜9], [BackSpace], [M: メモ切替] にも対応しています</p>
+  </footer>
+
+  <script>
+    /* 音声効果（Web Audio API） */
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playBeep(freq = 440, type = 'sine', duration = 0.08) {
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    /* ゲーム変数 */
+    let currentDifficulty = 'easy'; // 'easy' or 'medium'
+    let solutionBoard = [];
+    let initialBoard = [];
+    let currentBoard = [];
+    let memoBoard = []; // 各マスごとに Set(1..9) を格納
+    let selectedCell = null; // { row, col }
+    let mistakes = 0;
+    const maxMistakes = 3;
+    let hintsRemaining = 3;
+    let isMemoMode = false;
+    let historyStack = []; // アンドゥ用
+    let timerInterval = null;
+    let secondsElapsed = 0;
+    let isGameComplete = false;
+
+    // 有効な完全盤面（解答）をバックトラッキングでランダム生成
+    function generateSolvedSudoku() {
+      const board = Array.from({ length: 9 }, () => Array(9).fill(0));
+
+      function isValid(b, row, col, num) {
+        for (let i = 0; i < 9; i++) {
+          if (b[row][i] === num || b[i][col] === num) return false;
+        }
+        const startRow = Math.floor(row / 3) * 3;
+        const startCol = Math.floor(col / 3) * 3;
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 3; c++) {
+            if (b[startRow + r][startCol + c] === num) return false;
+          }
+        }
+        return true;
+      }
+
+      function solve(b) {
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (b[r][c] === 0) {
+              const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+              for (const num of numbers) {
+                if (isValid(b, r, c, num)) {
+                  b[r][c] = num;
+                  if (solve(b)) return true;
+                  b[r][c] = 0;
+                }
+              }
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+
+      solve(board);
+      return board;
+    }
+
+    /* 難易度に応じたマス目のオープン（初級：約40マス開、中級：約30マス開） */
+    function createPuzzle(solved, difficulty) {
+      const puzzle = solved.map(row => [...row]);
+      // 初級：除去約40マス（ヒント多め）、中級：除去約48マス
+      const cellsToRemove = difficulty === 'easy' ? 40 : 49;
+      
+      const positions = [];
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          positions.push({ r, c });
+        }
+      }
+      positions.sort(() => Math.random() - 0.5);
+
+      let removed = 0;
+      for (const pos of positions) {
+        if (removed >= cellsToRemove) break;
+        puzzle[pos.r][pos.c] = 0;
+        removed++;
+      }
+
+      return puzzle;
+    }
+
+    function buildGrid() {
+      const container = document.getElementById('sudoku-grid');
+      container.innerHTML = '';
+
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          const cell = document.createElement('div');
+          cell.id = `cell-${r}-${c}`;
+          cell.className = `grid-cell relative flex items-center justify-center font-bold cursor-pointer text-base sm:text-xl bg-white select-none`;
+
+          // 3x3ブロックの区切り太線
+          if ((r + 1) % 3 === 0 && r !== 8) cell.classList.add('border-b-thick');
+          if ((c + 1) % 3 === 0 && c !== 8) cell.classList.add('border-r-thick');
+
+          // クリックイベント
+          cell.addEventListener('click', () => onCellSelect(r, c));
+
+          container.appendChild(cell);
+        }
+      }
+    }
+
+    function onCellSelect(r, c) {
+      if (isGameComplete) return;
+      selectedCell = { row: r, col: c };
+      playBeep(600, 'sine', 0.04);
+      updateGridDisplay();
+    }
+
+    function updateGridDisplay() {
+      const selVal = selectedCell ? currentBoard[selectedCell.row][selectedCell.col] : 0;
+
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          const cellEl = document.getElementById(`cell-${r}-${c}`);
+          const val = currentBoard[r][c];
+          const isInitial = initialBoard[r][c] !== 0;
+          const isSelected = selectedCell && selectedCell.row === r && selectedCell.col === c;
+          const isInSameScope = selectedCell && (
+            selectedCell.row === r ||
+            selectedCell.col === c ||
+            (Math.floor(selectedCell.row / 3) === Math.floor(r / 3) && Math.floor(selectedCell.col / 3) === Math.floor(c / 3))
+          );
+          const isSameNumber = selVal !== 0 && val === selVal;
+
+          // 背景ハイライト設定
+          cellEl.className = cellEl.className.replace(/bg-\S+/g, '');
+          if (isSelected) {
+            cellEl.classList.add('bg-indigo-200');
+          } else if (isSameNumber) {
+            cellEl.classList.add('bg-indigo-100');
+          } else if (isInSameScope) {
+            cellEl.classList.add('bg-slate-100');
+          } else {
+            cellEl.classList.add('bg-white');
+          }
+
+          // 文字色と内容描画
+          if (val !== 0) {
+            cellEl.innerHTML = `<span>${val}</span>`;
+            if (isInitial) {
+              cellEl.classList.add('text-slate-900', 'font-extrabold');
+              cellEl.classList.remove('text-indigo-600', 'text-rose-500');
+            } else {
+              // ユーザー入力
+              const isCorrect = val === solutionBoard[r][c];
+              cellEl.classList.remove('text-slate-900', 'font-extrabold');
+              if (isCorrect) {
+                cellEl.classList.add('text-indigo-600', 'font-bold');
+                cellEl.classList.remove('text-rose-500');
+              } else {
+                cellEl.classList.add('text-rose-500', 'font-bold');
+              }
+            }
+          } else {
+            // メモ（ペンシルマーク）の描画
+            const notes = memoBoard[r][c];
+            if (notes && notes.size > 0) {
+              let html = '<div class="memo-grid">';
+              for (let i = 1; i <= 9; i++) {
+                html += `<div class="memo-item">${notes.has(i) ? i : ''}</div>`;
+              }
+              html += '</div>';
+              cellEl.innerHTML = html;
+            } else {
+              cellEl.innerHTML = '';
+            }
+          }
+        }
+      }
+    }
+
+    function handleNumberInput(num) {
+      if (!selectedCell || isGameComplete) return;
+      const { row, col } = selectedCell;
+
+      // 初期固定マスは変更不可
+      if (initialBoard[row][col] !== 0) {
+        showToast('固定マスは変更できません');
+        return;
+      }
+
+      if (isMemoMode) {
+        // メモ書き込み・解除
+        const notes = memoBoard[row][col];
+        if (notes.has(num)) {
+          notes.delete(num);
+        } else {
+          notes.add(num);
+        }
+        playBeep(700, 'triangle', 0.05);
+        updateGridDisplay();
+        return;
+      }
+
+      // 通常入力
+      const prevVal = currentBoard[row][col];
+      if (prevVal === num) return; // 同じ値なら何もしない
+
+      // 履歴保存（アンドゥ用）
+      historyStack.push({
+        row,
+        col,
+        prevVal,
+        newVal: num,
+        prevMemo: new Set(memoBoard[row][col])
+      });
+
+      // 入力マス更新＆メモ消去
+      currentBoard[row][col] = num;
+      memoBoard[row][col].clear();
+
+      // 正誤判定
+      if (num !== solutionBoard[row][col]) {
+        mistakes++;
+        document.getElementById('mistake-count').textContent = mistakes;
+        playBeep(220, 'sawtooth', 0.2);
+        showToast('数字が間違っています！');
+
+        if (mistakes >= maxMistakes) {
+          triggerGameOver();
+          return;
+        }
+      } else {
+        playBeep(880, 'sine', 0.08);
+        // 同じ行・列・3x3の該当メモから同数字を自動削除
+        cleanAssociatedMemos(row, col, num);
+      }
+
+      updateGridDisplay();
+      checkGameCompletion();
+    }
+
+    /* 正解時に同じブロック等のメモを整理 */
+    function cleanAssociatedMemos(r, c, val) {
+      for (let i = 0; i < 9; i++) {
+        memoBoard[r][i].delete(val);
+        memoBoard[i][c].delete(val);
+      }
+      const br = Math.floor(r / 3) * 3;
+      const bc = Math.floor(c / 3) * 3;
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          memoBoard[br + i][bc + j].delete(val);
+        }
+      }
+    }
+
+    function eraseCurrentCell() {
+      if (!selectedCell || isGameComplete) return;
+      const { row, col } = selectedCell;
+
+      if (initialBoard[row][col] !== 0) {
+        showToast('固定マスは消去できません');
+        return;
+      }
+
+      if (currentBoard[row][col] !== 0 || memoBoard[row][col].size > 0) {
+        historyStack.push({
+          row,
+          col,
+          prevVal: currentBoard[row][col],
+          newVal: 0,
+          prevMemo: new Set(memoBoard[row][col])
+        });
+        currentBoard[row][col] = 0;
+        memoBoard[row][col].clear();
+        playBeep(400, 'sine', 0.05);
+        updateGridDisplay();
+      }
+    }
+
+    function undoMove() {
+      if (historyStack.length === 0 || isGameComplete) {
+        showToast('元に戻す操作はありません');
+        return;
+      }
+      const last = historyStack.pop();
+      currentBoard[last.row][last.col] = last.prevVal;
+      memoBoard[last.row][last.col] = new Set(last.prevMemo);
+      selectedCell = { row: last.row, col: last.col };
+      playBeep(520, 'sine', 0.06);
+      updateGridDisplay();
+    }
+
+    function toggleMemoMode() {
+      isMemoMode = !isMemoMode;
+      const badge = document.getElementById('memo-badge');
+      const btn = document.getElementById('memo-toggle-btn');
+      if (isMemoMode) {
+        badge.textContent = 'ON';
+        badge.className = 'absolute top-1.5 right-2 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-indigo-600 text-white';
+        btn.classList.add('border-indigo-400', 'bg-indigo-50/50');
+      } else {
+        badge.textContent = 'OFF';
+        badge.className = 'absolute top-1.5 right-2 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-600';
+        btn.classList.remove('border-indigo-400', 'bg-indigo-50/50');
+      }
+      playBeep(650, 'sine', 0.04);
+    }
+
+    function useHint() {
+      if (isGameComplete) return;
+      if (hintsRemaining <= 0) {
+        showToast('ヒントはすべて使い切りました');
+        return;
+      }
+
+      // 選択中のマスがある場合、そこを優先して解く。空欄マスのみ
+      let target = null;
+      if (selectedCell && currentBoard[selectedCell.row][selectedCell.col] === 0) {
+        target = selectedCell;
+      } else {
+        // 未入力のマスからランダムに1つ選出
+        const emptyCells = [];
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (currentBoard[r][c] === 0) {
+              emptyCells.push({ row: r, col: c });
+            }
+          }
+        }
+        if (emptyCells.length > 0) {
+          target = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+        }
+      }
+
+      if (!target) {
+        showToast('すでに全てのマスが埋まっています');
+        return;
+      }
+
+      hintsRemaining--;
+      document.getElementById('hint-count-badge').textContent = hintsRemaining;
+      
+      const { row, col } = target;
+      const correctVal = solutionBoard[row][col];
+      currentBoard[row][col] = correctVal;
+      memoBoard[row][col].clear();
+      cleanAssociatedMemos(row, col, correctVal);
+      selectedCell = target;
+
+      playBeep(980, 'triangle', 0.15);
+      showToast(`ヒントを使用しました！（残り ${hintsRemaining} 回）`);
+      updateGridDisplay();
+      checkGameCompletion();
+    }
+
+    function checkGameCompletion() {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          if (currentBoard[r][c] !== solutionBoard[r][c]) {
+            return false;
+          }
+        }
+      }
+      // クリア達成！
+      isGameComplete = true;
+      clearInterval(timerInterval);
+
+      // 紙吹雪エフェクト
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+      playBeep(880, 'sine', 0.15);
+      setTimeout(() => playBeep(1174, 'sine', 0.3), 150);
+
+      // モーダル表示
+      document.getElementById('modal-time').textContent = formatTime(secondsElapsed);
+      document.getElementById('modal-diff').textContent = currentDifficulty === 'easy' ? '初級' : '中級';
+      setTimeout(() => {
+        document.getElementById('win-modal').classList.remove('hidden');
+      }, 500);
+      return true;
+    }
+
+    function triggerGameOver() {
+      isGameComplete = true;
+      clearInterval(timerInterval);
+      document.getElementById('gameover-modal').classList.remove('hidden');
+    }
+
+    function closeWinModalAndRestart() {
+      document.getElementById('win-modal').classList.add('hidden');
+      restartGame();
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      secondsElapsed = 0;
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        secondsElapsed++;
+        updateTimerDisplay();
+      }, 1000);
+    }
+
+    function formatTime(totalSec) {
+      const min = Math.floor(totalSec / 60).toString().padStart(2, '0');
+      const sec = (totalSec % 60).toString().padStart(2, '0');
+      return `${min}:${sec}`;
+    }
+
+    function updateTimerDisplay() {
+      document.getElementById('timer-display').textContent = formatTime(secondsElapsed);
+    }
+
+    let toastTimeout = null;
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.remove('opacity-0', '-translate-y-2');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        el.classList.add('opacity-0', '-translate-y-2');
+      }, 2000);
+    }
+
+    function setDifficulty(diff) {
+      currentDifficulty = diff;
+      const easyBtn = document.getElementById('btn-diff-easy');
+      const medBtn = document.getElementById('btn-diff-medium');
+
+      if (diff === 'easy') {
+        easyBtn.className = 'px-3 py-1.5 rounded-lg transition-all bg-white text-indigo-700 shadow-sm font-bold';
+        medBtn.className = 'px-3 py-1.5 rounded-lg transition-all text-slate-600 hover:text-slate-900';
+      } else {
+        medBtn.className = 'px-3 py-1.5 rounded-lg transition-all bg-white text-indigo-700 shadow-sm font-bold';
+        easyBtn.className = 'px-3 py-1.5 rounded-lg transition-all text-slate-600 hover:text-slate-900';
+      }
+      restartGame();
+    }
+
+    function restartGame() {
+      // モーダル非表示
+      document.getElementById('gameover-modal').classList.add('hidden');
+      document.getElementById('win-modal').classList.add('hidden');
+
+      // 状態リセット
+      mistakes = 0;
+      document.getElementById('mistake-count').textContent = mistakes;
+      hintsRemaining = 3;
+      document.getElementById('hint-count-badge').textContent = hintsRemaining;
+      historyStack = [];
+      isGameComplete = false;
+
+      // 数独盤面を生成
+      solutionBoard = generateSolvedSudoku();
+      initialBoard = createPuzzle(solutionBoard, currentDifficulty);
+      currentBoard = initialBoard.map(row => [...row]);
+      memoBoard = Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => new Set()));
+
+      // 最初のマスを選択
+      selectedCell = { row: 0, col: 0 };
+
+      updateGridDisplay();
+      startTimer();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (isGameComplete) return;
+
+      if (e.key >= '1' && e.key <= '9') {
+        handleNumberInput(parseInt(e.key, 10));
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        eraseCurrentCell();
+      } else if (e.key.toLowerCase() === 'm') {
+        toggleMemoMode();
+      } else if (e.key.toLowerCase() === 'z' && (e.ctrlKey || e.metaKey)) {
+        undoMove();
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        if (!selectedCell) {
+          selectedCell = { row: 0, col: 0 };
+        } else {
+          let { row, col } = selectedCell;
+          if (e.key === 'ArrowUp') row = (row + 8) % 9;
+          if (e.key === 'ArrowDown') row = (row + 1) % 9;
+          if (e.key === 'ArrowLeft') col = (col + 8) % 9;
+          if (e.key === 'ArrowRight') col = (col + 1) % 9;
+          selectedCell = { row, col };
+        }
+        updateGridDisplay();
+        e.preventDefault();
+      }
+    });
+
+    window.onload = function() {
+      buildGrid();
+      setDifficulty('easy');
+    };
+  </script>
+</body>
+</html>
